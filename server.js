@@ -1,24 +1,58 @@
-const { Console } = require('console')
-const express = require('express')
-const app = express()
 
-app.use(express.static(__dirname + '/node_modules'))
-app.get('/', (req, res, next) => {
-    res.sendFile(__dirname + '/index.html')
-})
+const express = require('express');
+const app = express();
+const bodyParser = require('body-parser');
+const webrtc = require("wrtc");
 
-const server = require('http').createServer(app)
+let senderStream;
 
-let options={
-    cors:true,
-   }
-const io = require('socket.io')(server, options)
+app.use(express.static('public'));
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
 
-io.on('connection', function(client){
-    console.log('Client connected ')
-    client.on('join', (data)=>{
-        console.log(data)
-    })
-})
+app.post("/consumer", async ({ body }, res) => {
+    const peer = new webrtc.RTCPeerConnection({
+        iceServers: [
+            {
+                urls: "stun:stun.stunprotocol.org"
+            }
+        ]
+    });
+    const desc = new webrtc.RTCSessionDescription(body.sdp);
+    await peer.setRemoteDescription(desc);
+    senderStream.getTracks().forEach(track => peer.addTrack(track, senderStream));
+    const answer = await peer.createAnswer();
+    await peer.setLocalDescription(answer);
+    const payload = {
+        sdp: peer.localDescription
+    }
 
-server.listen(4200, () => console.log('Listening on port 4200'))
+    res.json(payload);
+});
+
+app.post('/broadcast', async ({ body }, res) => {
+    const peer = new webrtc.RTCPeerConnection({
+        iceServers: [
+            {
+                urls: "stun:stun.stunprotocol.org"
+            }
+        ]
+    });
+    peer.ontrack = (e) => handleTrackEvent(e, peer);
+    const desc = new webrtc.RTCSessionDescription(body.sdp);
+    await peer.setRemoteDescription(desc);
+    const answer = await peer.createAnswer();
+    await peer.setLocalDescription(answer);
+    const payload = {
+        sdp: peer.localDescription
+    }
+
+    res.json(payload);
+});
+
+function handleTrackEvent(e, peer) {
+    senderStream = e.streams[0];
+};
+
+
+app.listen(5000, () => console.log('server started'));
